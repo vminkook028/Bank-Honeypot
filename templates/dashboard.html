@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Nexus Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: Arial; background: #0f0f0f; color: #00ff41; padding: 20px; }
+        h1 { text-align: center; font-family: monospace; margin-bottom: 20px; }
+        .stats { display: flex; gap: 15px; justify-content: center; margin: 20px 0; flex-wrap: wrap; }
+        .card { background: #1a1a1a; padding: 20px 30px; border-radius: 10px; text-align: center; border: 1px solid #333; min-width: 150px; }
+        .card h2 { font-size: 36px; color: #00ff41; }
+        .card p { color: #888; margin-top: 5px; font-size: 13px; }
+        .actions { text-align: center; margin: 15px 0; }
+        .btn { padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 5px; font-size: 14px; font-weight: bold; }
+        .export { background: #00ff41; color: black; }
+        .clear { background: #ff4141; color: white; }
+        .logout { background: #333; color: white; float: right; margin-bottom: 10px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+        th { background: #1a1a1a; padding: 12px 10px; text-align: left; color: #00ff41; border-bottom: 2px solid #333; }
+        td { padding: 10px; border-bottom: 1px solid #1a1a1a; color: #ccc; word-break: break-all; }
+        tr:hover td { background: #1a1a1a; }
+        .red { color: #ff4141; font-weight: bold; }
+        #live { color: #ff4141; font-size: 13px; animation: blink 1s infinite; }
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+        .new-row { animation: highlight 2s ease; }
+        @keyframes highlight { 0%{background:#003300} 100%{background:transparent} }
+    </style>
+</head>
+<body>
+
+    <div style="overflow:hidden">
+        <a href="/logout"><button class="btn logout">🚪 Logout</button></a>
+    </div>
+
+    <h1>⚡ NEXUS HONEYPOT &nbsp;<span id="live">● LIVE</span></h1>
+
+    <div class="stats">
+        <div class="card">
+            <h2 id="total">0</h2>
+            <p>Total Attacks</p>
+        </div>
+        <div class="card">
+            <h2 id="unique">0</h2>
+            <p>Unique IPs</p>
+        </div>
+        <div class="card">
+            <h2 id="last" style="font-size:14px; margin-top:8px; color:#ccc;">—</h2>
+            <p>Last Attack</p>
+        </div>
+    </div>
+
+    <div class="actions">
+        <button class="btn export" onclick="window.location='/api/export/csv'">⬇ Export CSV</button>
+        <button class="btn clear" onclick="clearLogs()">🗑 Clear Logs</button>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Time</th>
+                <th>IP</th>
+                <th>Location</th>
+                <th>Username</th>
+                <th>Password</th>
+                <th>User Agent</th>
+            </tr>
+        </thead>
+        <tbody id="logs-body"></tbody>
+    </table>
+
+    <script>
+        const socket = io();
+
+        function loadStats() {
+            fetch('/api/stats')
+                .then(r => r.json())
+                .then(d => {
+                    document.getElementById('total').textContent = d.total;
+                    document.getElementById('unique').textContent = d.unique_ips;
+                    document.getElementById('last').textContent = d.last_attack || '—';
+                });
+        }
+
+        function loadLogs() {
+            fetch('/api/logs')
+                .then(r => r.json())
+                .then(logs => {
+                    const tbody = document.getElementById('logs-body');
+                    tbody.innerHTML = '';
+                    logs.slice().reverse().forEach(l => appendRow(l, false));
+                });
+        }
+
+        function appendRow(l, isNew) {
+            const tbody = document.getElementById('logs-body');
+            const tr = document.createElement('tr');
+            if (isNew) tr.classList.add('new-row');
+            tr.innerHTML = `
+                <td>${l.time}</td>
+                <td>${l.ip}</td>
+                <td>${l.location}</td>
+                <td class="red">${l.username}</td>
+                <td class="red">${l.password}</td>
+                <td style="font-size:11px;color:#666">${l.user_agent}</td>
+            `;
+            tbody.prepend(tr);
+        }
+
+        function clearLogs() {
+            if (confirm('Saare logs delete ho jaayenge. Sure ho?')) {
+                fetch('/api/clear', { method: 'POST' })
+                    .then(() => {
+                        document.getElementById('logs-body').innerHTML = '';
+                        loadStats();
+                    });
+            }
+        }
+
+        // Live updates via WebSocket
+        socket.on('new_attack', l => {
+            appendRow(l, true);
+            loadStats();
+        });
+
+        socket.on('logs_cleared', () => {
+            document.getElementById('logs-body').innerHTML = '';
+            loadStats();
+        });
+
+        // Initial load
+        loadStats();
+        loadLogs();
+
+        // Refresh stats every 5 seconds
+        setInterval(loadStats, 5000);
+    </script>
+</body>
+</html>
